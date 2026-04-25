@@ -1,4 +1,4 @@
-jsximport React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import JobCard from '../components/JobCard.jsx'
 import DetailPanel from '../components/DetailPanel.jsx'
 import DirectLinks from '../components/DirectLinks.jsx'
