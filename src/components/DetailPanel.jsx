@@ -1,11 +1,13 @@
 import React from 'react'
 import { SECTORS } from '../utils/constants.js'
 import { timeAgo, getMatchedSkills, getSkillGaps } from '../utils/score.js'
+import { buildApplyUrl } from '../utils/applyUrl.js'
 
 export default function DetailPanel({ job, profile, onClose }) {
   const sec = SECTORS[job.sector] || SECTORS.nhs_hospital
   const matched = getMatchedSkills(job, profile)
   const gaps = getSkillGaps(job, profile)
+  const applyUrl = buildApplyUrl(job)
 
   return (
     <div style={styles.panel}>
@@ -46,8 +48,8 @@ export default function DetailPanel({ job, profile, onClose }) {
 
       {gaps.length > 0 && (
         <div style={styles.section}>
-          <div style={styles.labelWarn}>⚠ Skills to add to your CV</div>
-          <p style={styles.gapNote}>These appear in the job description but aren't on your CV yet. Adding them could increase your chances.</p>
+          <div style={styles.labelWarn}>⚠ Add these to your CV</div>
+          <p style={styles.gapNote}>These appear in the job description but are not on your CV yet.</p>
           <div style={styles.tagWrap}>
             {gaps.map(s => <span key={s} style={styles.gapTag}>{s}</span>)}
           </div>
@@ -56,10 +58,11 @@ export default function DetailPanel({ job, profile, onClose }) {
 
       <button
         style={styles.applyBtn}
-        onClick={() => { if (job.redirect_url) window.open(job.redirect_url, '_blank') }}
+        onClick={() => window.open(applyUrl, '_blank')}
       >
-        Apply now →
+        Search this role at {job.company} →
       </button>
+      <p style={styles.applyNote}>Opens the employer's careers page filtered to this role</p>
     </div>
   )
 }
@@ -82,5 +85,6 @@ const styles = {
   matchTag: { fontSize: 11, padding: '3px 9px', background: '#E1F5EE', color: '#085041', borderRadius: 20, fontWeight: 500 },
   gapTag: { fontSize: 11, padding: '3px 9px', background: '#FAEEDA', color: '#633806', borderRadius: 20, fontWeight: 500 },
   gapNote: { fontSize: 12, color: '#6b7280', marginBottom: 8, lineHeight: 1.5 },
-  applyBtn: { width: '100%', padding: '11px', background: '#1D9E75', color: '#fff', border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", marginTop: 4 }
+  applyBtn: { width: '100%', padding: '11px', background: '#1D9E75', color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", marginTop: 4 },
+  applyNote: { fontSize: 11, color: '#9ca3af', textAlign: 'center', marginTop: 6 }
 }
