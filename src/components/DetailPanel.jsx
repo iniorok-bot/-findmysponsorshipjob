@@ -1,13 +1,13 @@
 import React from 'react'
 import { SECTORS } from '../utils/constants.js'
 import { timeAgo, getMatchedSkills, getSkillGaps } from '../utils/score.js'
-import { buildApplyUrl } from '../utils/applyUrl.js'
+import { buildApplyUrls } from '../utils/applyUrl.js'
 
 export default function DetailPanel({ job, profile, onClose }) {
   const sec = SECTORS[job.sector] || SECTORS.nhs_hospital
   const matched = getMatchedSkills(job, profile)
   const gaps = getSkillGaps(job, profile)
-  const applyUrl = buildApplyUrl(job)
+  const applyUrls = buildApplyUrls(job)
 
   return (
     <div style={styles.panel}>
@@ -56,13 +56,21 @@ export default function DetailPanel({ job, profile, onClose }) {
         </div>
       )}
 
-      <button
-        style={styles.applyBtn}
-        onClick={() => window.open(applyUrl, '_blank')}
-      >
-        Search this role at {job.company} →
-      </button>
-      <p style={styles.applyNote}>Opens the employer's careers page filtered to this role</p>
+      <div style={styles.section}>
+        <div style={styles.label}>Find this role on</div>
+        <div style={styles.applyGrid}>
+          {applyUrls.map(link => (
+            <button
+              key={link.label}
+              style={{ ...styles.applyBtn, background: link.color }}
+              onClick={() => window.open(link.url, '_blank')}
+            >
+              {link.label} →
+            </button>
+          ))}
+        </div>
+        <p style={styles.applyNote}>Each button searches for this role with visa sponsorship on that job board</p>
+      </div>
     </div>
   )
 }
@@ -85,6 +93,7 @@ const styles = {
   matchTag: { fontSize: 11, padding: '3px 9px', background: '#E1F5EE', color: '#085041', borderRadius: 20, fontWeight: 500 },
   gapTag: { fontSize: 11, padding: '3px 9px', background: '#FAEEDA', color: '#633806', borderRadius: 20, fontWeight: 500 },
   gapNote: { fontSize: 12, color: '#6b7280', marginBottom: 8, lineHeight: 1.5 },
-  applyBtn: { width: '100%', padding: '11px', background: '#1D9E75', color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", marginTop: 4 },
-  applyNote: { fontSize: 11, color: '#9ca3af', textAlign: 'center', marginTop: 6 }
+  applyGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 8 },
+  applyBtn: { padding: '8px 10px', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif', textAlign: 'left" },
+  applyNote: { fontSize: 11, color: '#9ca3af', lineHeight: 1.4 }
 }
