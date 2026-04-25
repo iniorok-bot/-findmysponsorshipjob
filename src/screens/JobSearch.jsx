@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+jsximport React, { useState, useEffect, useRef, useCallback } from 'react'
 import JobCard from '../components/JobCard.jsx'
 import DetailPanel from '../components/DetailPanel.jsx'
 import DirectLinks from '../components/DirectLinks.jsx'
-import { ADZUNA_APP_ID, ADZUNA_APP_KEY, DEMO_JOBS, SEARCH_TERMS_SCOTLAND, SEARCH_TERMS_UK } from '../utils/constants.js'
+import { DEMO_JOBS, SEARCH_TERMS_SCOTLAND, SEARCH_TERMS_UK } from '../utils/constants.js'
 import { classifySector, detectRegion, detectDisplaced, detectBand } from '../utils/classify.js'
 import { scoreJob, tieBreakSort, isNew } from '../utils/score.js'
 import { getStorage, setStorage } from '../utils/storage.js'
@@ -48,7 +48,7 @@ export default function JobSearch({ profile, onReset }) {
 
       for (const term of terms.slice(0, 5)) {
         try {
-          const url = `https://api.adzuna.com/v1/api/jobs/gb/search/1?app_id=${ADZUNA_APP_ID}&app_key=${ADZUNA_APP_KEY}&results_per_page=10&what=${encodeURIComponent(term)}&content-type=application/json`
+          const url = `/api/jobs?term=${encodeURIComponent(term)}`
           const res = await fetch(url)
           if (res.ok) {
             const data = await res.json()
@@ -82,7 +82,6 @@ export default function JobSearch({ profile, onReset }) {
       const src = results.length > 0 ? results : DEMO_JOBS
       const processed = processJobs(src)
 
-      // Detect new jobs
       const currentIds = new Set(processed.map(j => String(j.id)))
       const newJobs = processed.filter(j => !prevJobIdsRef.current.has(String(j.id)) && isNew(j.posted_date))
       if (newJobs.length > 0 && prevJobIdsRef.current.size > 0) {
@@ -139,8 +138,6 @@ export default function JobSearch({ profile, onReset }) {
   return (
     <div style={styles.page}>
       <div style={styles.inner}>
-
-        {/* Header */}
         <div style={styles.header}>
           <div style={styles.headerTop}>
             <div style={styles.candidateRow}>
@@ -155,17 +152,12 @@ export default function JobSearch({ profile, onReset }) {
               <button style={styles.resetBtn} onClick={onReset}>Change profile</button>
             </div>
           </div>
-
           <div style={styles.statusRow}>
-            <span style={styles.chip}>
-              <span style={styles.dot} />
-              Live
-            </span>
+            <span style={styles.chip}><span style={styles.dot} />Live</span>
             <span style={styles.chip}>{lastFetched ? `Updated ${timeAgoStr(lastFetched)}` : 'Loading...'}</span>
             <span style={styles.chip}>Next refresh {fmtCd(countdown)}</span>
             {newCount > 0 && <span style={{ ...styles.chip, background: '#E1F5EE', color: '#085041', border: '0.5px solid #5DCAA5' }}>{newCount} new</span>}
           </div>
-
           {alert && (
             <div style={styles.alertBanner}>
               <span>{alert} since last refresh</span>
@@ -174,10 +166,8 @@ export default function JobSearch({ profile, onReset }) {
           )}
         </div>
 
-        {/* Direct links */}
         <DirectLinks />
 
-        {/* Filters */}
         <div style={styles.filters}>
           <select style={styles.fsel} value={filterRegion} onChange={e => setFilterRegion(e.target.value)}>
             <option value="all">All regions</option>
@@ -207,7 +197,6 @@ export default function JobSearch({ profile, onReset }) {
           </label>
         </div>
 
-        {/* Results count */}
         <div style={styles.resultsHeader}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={styles.resultsCount}>{filtered.length} job{filtered.length !== 1 ? 's' : ''} found</span>
@@ -216,18 +205,10 @@ export default function JobSearch({ profile, onReset }) {
           <span style={styles.resultsCount}>Newest first</span>
         </div>
 
-        {/* Layout */}
         <div style={styles.layout}>
           <div style={styles.jobList}>
-            {loading && (
-              <div style={styles.loading}>
-                <div style={styles.spinner} />
-                <p>Searching UK job boards...</p>
-              </div>
-            )}
-            {!loading && filtered.length === 0 && (
-              <div style={styles.empty}>No jobs found. Try adjusting your filters.</div>
-            )}
+            {loading && <div style={styles.loading}><div style={styles.spinner} /><p>Searching UK job boards...</p></div>}
+            {!loading && filtered.length === 0 && <div style={styles.empty}>No jobs found. Try adjusting your filters.</div>}
             {!loading && filtered.map(job => (
               <JobCard
                 key={job.id}
@@ -238,7 +219,6 @@ export default function JobSearch({ profile, onReset }) {
               />
             ))}
           </div>
-
           {selected && (
             <div style={styles.detailWrap}>
               <DetailPanel job={selected} profile={profile} onClose={() => setSelected(null)} />
