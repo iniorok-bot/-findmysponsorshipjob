@@ -2,20 +2,23 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import JobCard from '../components/JobCard.jsx'
 import DetailPanel from '../components/DetailPanel.jsx'
 import DirectLinks from '../components/DirectLinks.jsx'
-import { DEMO_JOBS, SEARCH_TERMS_SCOTLAND, SEARCH_TERMS_UK } from '../utils/constants.js'
+import { DEMO_JOBS, SEARCH_TERMS, REFRESH_INTERVAL, MAX_JOBS } from '../utils/constants.js'
 import { classifySector, detectRegion, detectDisplaced, detectBand } from '../utils/classify.js'
 import { scoreJob, tieBreakSort, isNew } from '../utils/score.js'
-import { getStorage, setStorage } from '../utils/storage.js'
+import { getStorage, setStorage, cleanOldSeenIds, markJobSeen, isJobSeen } from '../utils/storage.js'
 
 export default function JobSearch({ profile, onReset }) {
   const [jobs, setJobs] = useState([])
   const [loading, setLoading] = useState(false)
   const [lastFetched, setLastFetched] = useState(null)
-  const [countdown, setCountdown] = useState(1800)
+  const [countdown, setCountdown] = useState(900)
   const [alert, setAlert] = useState(null)
-  const [seenIds, setSeenIds] = useState(() => getStorage('fmsj_seen_v1', {}))
+  const [seenIds, setSeenIds] = useState(() => {
+    const raw = getStorage('fmsj_seen_v2', {})
+    return cleanOldSeenIds(raw)
+  })
   const [selected, setSelected] = useState(null)
-  const [filterRegion, setFilterRegion] = useState(profile.preferredRegion === 'Scotland' ? 'Scotland' : 'all')
+  const [filterRegion, setFilterRegion] = useState('all')
   const [filterSector, setFilterSector] = useState('all')
   const [filterBand, setFilterBand] = useState('all')
   const [filterDisplaced, setFilterDisplaced] = useState(false)
@@ -35,53 +38,60 @@ export default function JobSearch({ profile, onReset }) {
       return { ...j, sector, match: scoreJob({ ...j, sector }, profile) }
     })
     withMeta.sort(tieBreakSort)
-    return withMeta
+    // Cap at MAX_JOBS — keep newest
+    return withMeta.slice(0, MAX_JOBS)
   }, [profile])
 
   const fetchJobs = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
     try {
       const results = []
-      const terms = profile.preferredRegion === 'Scotland'
-        ? [...SEARCH_TERMS_SCOTLAND, ...SEARCH_TERMS_UK.slice(0, 3)]
-        : SEARCH_TERMS_UK
 
-      for (const term of terms.slice(0, 5)) {
+      // Run all 8 search terms in parallel for speed
+      const fetches = SEARCH_TERMS.map(async (term) => {
         try {
           const url = `/api/jobs?term=${encodeURIComponent(term)}`
           const res = await fetch(url)
           if (res.ok) {
             const data = await res.json()
-            if (data.results) {
-              data.results.forEach(j => {
-                const desc = (j.description || '').toLowerCase()
-                const hasSponsor = desc.includes('sponsor') || desc.includes('visa') || desc.includes('skilled worker')
-                if (hasSponsor) {
-                  results.push({
-                    id: j.id,
-                    title: j.title,
-                    company: j.company?.display_name || 'Unknown',
-                    location: j.location?.display_name || 'UK',
-                    region: detectRegion(j.location?.display_name || ''),
-                    salary: j.salary_min ? `£${Math.round(j.salary_min).toLocaleString()} – £${Math.round(j.salary_max || j.salary_min).toLocaleString()}` : 'Not specified',
-                    band: detectBand(j.title),
-                    posted_date: j.created,
-                    sponsorship: true,
-                    description: j.description,
-                    redirect_url: j.redirect_url,
-                    displaced: detectDisplaced(j.description),
-                    skills_match: (profile.skills || []).filter(s => desc.includes(s.toLowerCase())).slice(0, 5)
-                  })
-                }
-              })
-            }
+            return data.results || []
           }
-        } catch (e) { /* continue */ }
-      }
+        } catch (e) {}
+        return []
+      })
+
+      const allResults = await Promise.all(fetches)
+      const seenJobIds = new Set()
+
+      allResults.flat().forEach(j => {
+        const jobKey = String(j.id)
+        if (seenJobIds.has(jobKey)) return
+        seenJobIds.add(jobKey)
+        const desc = (j.description || '').toLowerCase()
+        const hasSponsor = desc.includes('sponsor') || desc.includes('visa') || desc.includes('skilled worker')
+        if (hasSponsor) {
+          results.push({
+            id: j.id,
+            title: j.title,
+            company: j.company?.display_name || 'Unknown',
+            location: j.location?.display_name || 'UK',
+            region: detectRegion(j.location?.display_name || ''),
+            salary: j.salary_min ? `£${Math.round(j.salary_min).toLocaleString()} – £${Math.round(j.salary_max || j.salary_min).toLocaleString()}` : 'Not specified',
+            band: detectBand(j.title),
+            posted_date: j.created,
+            sponsorship: true,
+            description: j.description,
+            redirect_url: j.redirect_url,
+            displaced: detectDisplaced(j.description),
+            skills_match: (profile.skills || []).filter(s => desc.includes(s.toLowerCase())).slice(0, 5)
+          })
+        }
+      })
 
       const src = results.length > 0 ? results : DEMO_JOBS
       const processed = processJobs(src)
 
+      // Detect genuinely new jobs
       const currentIds = new Set(processed.map(j => String(j.id)))
       const newJobs = processed.filter(j => !prevJobIdsRef.current.has(String(j.id)) && isNew(j.posted_date))
       if (newJobs.length > 0 && prevJobIdsRef.current.size > 0) {
@@ -89,27 +99,40 @@ export default function JobSearch({ profile, onReset }) {
         setTimeout(() => setAlert(null), 30000)
       }
       prevJobIdsRef.current = currentIds
+
+      // Auto-clean old seen IDs on each refresh
+      const cleaned = cleanOldSeenIds(seenIds)
+      if (Object.keys(cleaned).length !== Object.keys(seenIds).length) {
+        setSeenIds(cleaned)
+        setStorage('fmsj_seen_v2', cleaned)
+      }
+
       setJobs(processed)
       setLastFetched(new Date())
-      setCountdown(1800)
+      setCountdown(900)
     } catch (e) {
       const processed = processJobs(DEMO_JOBS)
       setJobs(processed)
     }
     setLoading(false)
-  }, [profile, processJobs])
+  }, [profile, processJobs, seenIds])
 
   useEffect(() => {
     fetchJobs()
-    timerRef.current = setInterval(() => fetchJobs(true), 1800000)
-    cdRef.current = setInterval(() => setCountdown(c => c <= 1 ? 1800 : c - 1), 1000)
+    timerRef.current = setInterval(() => fetchJobs(true), REFRESH_INTERVAL)
+    cdRef.current = setInterval(() => setCountdown(c => c <= 1 ? 900 : c - 1), 1000)
     return () => { clearInterval(timerRef.current); clearInterval(cdRef.current) }
   }, [])
 
   const markSeen = id => {
-    const u = { ...seenIds, [String(id)]: true }
+    const u = markJobSeen(seenIds, id)
     setSeenIds(u)
-    setStorage('fmsj_seen_v1', u)
+    setStorage('fmsj_seen_v2', u)
+  }
+
+  const clearAllSeen = () => {
+    setSeenIds({})
+    setStorage('fmsj_seen_v2', {})
   }
 
   const handleJobClick = job => { setSelected(job); markSeen(job.id) }
@@ -133,34 +156,44 @@ export default function JobSearch({ profile, onReset }) {
     return true
   })
 
-  const newCount = filtered.filter(j => isNew(j.posted_date) && !seenIds[String(j.id)]).length
+  const newCount = filtered.filter(j => isNew(j.posted_date) && !isJobSeen(seenIds, j.id)).length
+  const seenCount = Object.keys(seenIds).length
 
   return (
     <div style={styles.page}>
       <div style={styles.inner}>
+
         <div style={styles.header}>
           <div style={styles.headerTop}>
             <div style={styles.candidateRow}>
               <div style={styles.avatar}>{(profile.name || 'U').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}</div>
               <div>
                 <div style={styles.candidateName}>{profile.name}</div>
-                <div style={styles.candidateSub}>Sponsorship job search — {profile.preferredRegion === 'all' ? 'All UK' : profile.preferredRegion}</div>
+                <div style={styles.candidateSub}>Sponsorship job search — All UK</div>
               </div>
             </div>
             <div style={styles.headerActions}>
-              <button style={styles.refreshBtn} onClick={() => fetchJobs()}>Refresh</button>
+              <button style={styles.refreshBtn} onClick={() => fetchJobs()}>Refresh now</button>
+              {seenCount > 0 && (
+                <button style={styles.clearBtn} onClick={clearAllSeen} title="Reset all seen jobs — green ticks will reappear">
+                  Clear seen ({seenCount})
+                </button>
+              )}
               <button style={styles.resetBtn} onClick={onReset}>Change profile</button>
             </div>
           </div>
+
           <div style={styles.statusRow}>
             <span style={styles.chip}><span style={styles.dot} />Live</span>
             <span style={styles.chip}>{lastFetched ? `Updated ${timeAgoStr(lastFetched)}` : 'Loading...'}</span>
             <span style={styles.chip}>Next refresh {fmtCd(countdown)}</span>
+            <span style={styles.chip}>All UK · 8 search terms · Max {MAX_JOBS} jobs</span>
             {newCount > 0 && <span style={{ ...styles.chip, background: '#E1F5EE', color: '#085041', border: '0.5px solid #5DCAA5' }}>{newCount} new</span>}
           </div>
+
           {alert && (
             <div style={styles.alertBanner}>
-              <span>{alert} since last refresh</span>
+              <span>🔔 {alert} since last refresh</span>
               <button style={styles.alertClose} onClick={() => setAlert(null)}>×</button>
             </div>
           )}
@@ -214,7 +247,7 @@ export default function JobSearch({ profile, onReset }) {
                 key={job.id}
                 job={job}
                 selected={selected?.id === job.id}
-                seen={!!seenIds[String(job.id)]}
+                seen={isJobSeen(seenIds, job.id)}
                 onClick={() => handleJobClick(job)}
               />
             ))}
@@ -239,8 +272,9 @@ const styles = {
   avatar: { width: 38, height: 38, borderRadius: '50%', background: '#E1F5EE', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 600, color: '#0F6E56', flexShrink: 0 },
   candidateName: { fontSize: 15, fontWeight: 600, color: '#1a1a1a' },
   candidateSub: { fontSize: 12, color: '#6b7280' },
-  headerActions: { display: 'flex', gap: 8 },
+  headerActions: { display: 'flex', gap: 8, flexWrap: 'wrap' },
   refreshBtn: { fontSize: 13, padding: '6px 14px', border: '0.5px solid #d1cfc8', background: '#fff', color: '#1a1a1a', borderRadius: 8, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif" },
+  clearBtn: { fontSize: 13, padding: '6px 14px', border: '0.5px solid #f59e0b', background: '#fffbeb', color: '#92400e', borderRadius: 8, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif" },
   resetBtn: { fontSize: 13, padding: '6px 14px', border: '0.5px solid #d1cfc8', background: '#f5f4f0', color: '#6b7280', borderRadius: 8, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif" },
   statusRow: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
   chip: { fontSize: 11, color: '#6b7280', background: '#f5f4f0', border: '0.5px solid #e5e3de', borderRadius: 20, padding: '3px 10px' },
