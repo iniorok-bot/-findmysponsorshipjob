@@ -74,8 +74,11 @@ const POSITIVE = [
 
 function isValidJob(description = '') {
   const d = description.toLowerCase()
+  // Block explicit no-sponsorship statements
   if (NEGATIVE.some(n => d.includes(n))) return false
-  return POSITIVE.some(p => d.includes(p))
+  // For Reed, trust the search keyword filtering — don't require positive phrases
+  // since Reed descriptions in search results are often truncated
+  return true
 }
 
 export default async function handler(req, res) {
@@ -105,23 +108,52 @@ export default async function handler(req, res) {
     const data = await response.json()
     const results = data.results || []
 
-    // Filter for genuine sponsorship jobs and format to match our job structure
-    const filtered = results
-      .filter(j => isValidJob(j.jobDescription || j.description || ''))
-      .map(j => ({
-        id: `reed_${j.jobId}`,
-        title: j.jobTitle,
-        company: j.employerName,
-        location: j.locationName,
-        salary: j.minimumSalary ? `£${Math.round(j.minimumSalary).toLocaleString()} – £${Math.round(j.maximumSalary || j.minimumSalary).toLocaleString()}` : 'Not specified',
-        description: j.jobDescription || j.description || '',
-        redirect_url: j.jobUrl,  // Direct link to exact Reed job posting
-        posted_date: j.date || new Date().toISOString(),
-        source: 'Reed',
-        sponsorship: true
-      }))
+    // Filter negatives first
+    const filtered = results.filter(j => !NEGATIVE.some(n => (j.jobDescription || '').toLowerCase().includes(n)))
 
-    return res.status(200).json({ results: filtered })
+    // Fetch full details for each job to get direct URL — run in parallel
+    const detailedJobs = await Promise.all(
+      filtered.slice(0, 10).map(async (j) => {
+        try {
+          const detailRes = await fetch(`https://www.reed.co.uk/api/1.0/jobs/${j.jobId}`, {
+            headers: {
+              'Authorization': `Basic ${Buffer.from(REED_API_KEY + ':').toString('base64')}`,
+              'Content-Type': 'application/json'
+            }
+          })
+          if (detailRes.ok) {
+            const detail = await detailRes.json()
+            return {
+              id: `reed_${j.jobId}`,
+              title: detail.jobTitle || j.jobTitle,
+              company: detail.employerName || j.employerName,
+              location: detail.locationName || j.locationName,
+              salary: detail.minimumSalary ? `£${Math.round(detail.minimumSalary).toLocaleString()} – £${Math.round(detail.maximumSalary || detail.minimumSalary).toLocaleString()}` : 'Not specified',
+              description: detail.jobDescription || j.jobDescription || '',
+              redirect_url: detail.jobUrl || detail.externalUrl || `https://www.reed.co.uk/jobs/${j.jobId}`,
+              posted_date: detail.date || j.date || new Date().toISOString(),
+              source: 'Reed',
+              sponsorship: true
+            }
+          }
+        } catch (e) {}
+        // Fallback if details call fails
+        return {
+          id: `reed_${j.jobId}`,
+          title: j.jobTitle,
+          company: j.employerName,
+          location: j.locationName,
+          salary: j.minimumSalary ? `£${Math.round(j.minimumSalary).toLocaleString()} – £${Math.round(j.maximumSalary || j.minimumSalary).toLocaleString()}` : 'Not specified',
+          description: j.jobDescription || '',
+          redirect_url: `https://www.reed.co.uk/jobs/${j.jobId}`,
+          posted_date: j.date || new Date().toISOString(),
+          source: 'Reed',
+          sponsorship: true
+        }
+      })
+    )
+
+    return res.status(200).json({ results: detailedJobs.filter(Boolean) })
   } catch (error) {
     return res.status(500).json({ error: 'Failed to fetch Reed jobs', message: error.message })
   }
