@@ -32,8 +32,10 @@ export const SEARCH_TERMS = [
   'medical secretary ward clerk patient pathway clinic coordinator admissions sponsorship NHS',
   // Batch 7 — Specialist support
   'dementia learning disability autism support worker visa sponsorship UK',
-  // Batch 8 — Displaced workers dedicated
-  'displaced care worker visa sponsorship UK',
+  // Batch 8 — Senior and band 3 roles
+  'senior care assistant visa sponsorship UK',
+  // Batch 9 — Support worker band 3
+  'support worker band 3 sponsorship NHS',
 ]
 
 export const DIRECT_LINKS = [
